@@ -80,6 +80,7 @@ func _runChangeStream(ctx context.Context, connstr string, interval time.Duratio
 		// 1. $changeStream stage
 		{
 			{"$changeStream", bson.D{
+				{"allChangesForCluster", true},
 				{"fullDocument", "default"},
 				{"showRawUpdateDescription", true},
 				{"showExpandedEvents", true},
