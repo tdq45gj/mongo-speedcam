@@ -84,7 +84,7 @@ func _runChangeStream(ctx context.Context, connstr string, interval time.Duratio
 				{"showRawUpdateDescription", true},
 				{"showExpandedEvents", true},
 				{"showSystemEvents", true},
-				// You would include "startAfter" or "startAtOperationTime" here if needed
+				{"startAtOperationTime", startTS},
 			}},
 		},
 		// 2. $project stage to exclude fields
