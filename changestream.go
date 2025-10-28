@@ -38,45 +38,150 @@ func _runChangeStream(ctx context.Context, connstr string, interval time.Duratio
 
 	startTime := time.Now()
 
-	resp := db.RunCommand(
-		sctx,
-		bson.D{
-			{"aggregate", 1},
-			{"cursor", bson.D{}},
-			{"pipeline", mongo.Pipeline{
-				{{"$changeStream", bson.D{
-					{"allChangesForCluster", true},
-					{"showSystemEvents", true},
-					{"showExpandedEvents", true},
-					{"startAtOperationTime", startTS},
-				}}},
-				{{"$match", bson.D{
-					{"clusterTime", bson.D{
-						{"$lte", bson.Timestamp{T: uint32(time.Now().Unix())}},
-					}},
-				}}},
-				{{"$addFields", bson.D{
-					{"operationType", "$$REMOVE"},
-					{"op", bson.D{{"$cond", bson.D{
-						{"if", bson.D{{"$in", [2]any{
-							"$operationType",
-							eventsToTruncate,
-						}}}},
-						{"then", bson.D{{"$substr",
-							[3]any{"$operationType", 0, 1},
-						}}},
-						{"else", "$operationType"},
+	_ = bson.D{
+		{"aggregate", 1},
+		{"cursor", bson.D{}},
+		{"pipeline", mongo.Pipeline{
+			{{"$changeStream", bson.D{
+				{"allChangesForCluster", true},
+				{"showSystemEvents", true},
+				{"showExpandedEvents", true},
+				{"startAtOperationTime", startTS},
+			}}},
+			{{"$match", bson.D{
+				{"clusterTime", bson.D{
+					{"$lte", bson.Timestamp{T: uint32(time.Now().Unix())}},
+				}},
+			}}},
+			{{"$addFields", bson.D{
+				{"operationType", "$$REMOVE"},
+				{"op", bson.D{{"$cond", bson.D{
+					{"if", bson.D{{"$in", [2]any{
+						"$operationType",
+						eventsToTruncate,
 					}}}},
-					{"size", bson.D{{"$bsonSize", "$$ROOT"}}},
-				}}},
-				{{"$project", bson.D{
-					{"_id", 1},
-					{"op", 1},
-					{"size", 1},
-					{"clusterTime", 1},
-				}}},
+					{"then", bson.D{{"$substr",
+						[3]any{"$operationType", 0, 1},
+					}}},
+					{"else", "$operationType"},
+				}}}},
+				{"size", bson.D{{"$bsonSize", "$$ROOT"}}},
+			}}},
+			{{"$project", bson.D{
+				{"_id", 1},
+				{"op", 1},
+				{"size", 1},
+				{"clusterTime", 1},
+			}}},
+		}},
+	}
+
+	pipeline := mongo.Pipeline{
+		// 1. $changeStream stage
+		{
+			{"$changeStream", bson.D{
+				{"fullDocument", "default"},
+				{"showRawUpdateDescription", true},
+				{"showExpandedEvents", true},
+				{"showSystemEvents", true},
+				// You would include "startAfter" or "startAtOperationTime" here if needed
 			}},
 		},
+		// 2. $project stage to exclude fields
+		{
+			{"$project", bson.D{
+				{"lsid", 0},
+				{"txnNumber", 0},
+				{"wallTime", 0},
+				{"updateDescription", 0},
+				{"fullDocument", 0},
+				{"rawUpdateDescription", 0},
+			}},
+		},
+		// 3. $match stage for filtering
+		{
+			{"$match", bson.D{
+				{"$expr", bson.D{
+					{"$and", bson.A{
+						// First $not block
+						bson.D{
+							{"$not", bson.D{
+								{"$or", bson.A{
+									// $in condition for "$ns.db"
+									bson.D{
+										{"$in", bson.A{
+											"$ns.db",
+											bson.A{
+												"mongosync_reserved_for_internal_use",
+												"admin",
+												"local",
+												"config",
+											},
+										}},
+									},
+									// $eq condition using $indexOfCP
+									bson.D{
+										{"$eq", bson.A{
+											0,
+											bson.D{
+												{"$indexOfCP", bson.A{
+													"$ns.db",
+													"mongosync_reserved_for_verification_",
+													0,
+													1,
+												}},
+											},
+										}},
+									},
+								}},
+							}},
+						},
+						// Second $not block (for $ns.coll)
+						bson.D{
+							{"$not", bson.D{
+								{"$eq", bson.A{
+									0,
+									bson.D{
+										{"$indexOfCP", bson.A{
+											"$ns.coll",
+											"system.",
+											0,
+											1,
+										}},
+									},
+								}},
+							}},
+						},
+					}},
+				}},
+			}},
+		},
+		// 4. $addFields stage
+		{
+			{"$addFields", bson.D{
+				{"_msh", bson.D{
+					{"$toHashedIndexKey", bson.D{
+						{"$_internalKeyStringValue", bson.D{
+							{"input", "$documentKey._id"},
+						}},
+					}},
+				}},
+			}},
+		},
+		// 5. $changeStreamSplitLargeEvent stage
+		{
+			{"$changeStreamSplitLargeEvent", bson.D{}},
+		},
+	}
+	mongosyncQuery := bson.D{
+		{"aggregate", 1},
+		{"cursor", bson.D{}},
+		{"pipeline", pipeline},
+	}
+
+	resp := db.RunCommand(
+		sctx,
+		mongosyncQuery,
 	)
 
 	cursor, err := cursor.New(db, resp)
