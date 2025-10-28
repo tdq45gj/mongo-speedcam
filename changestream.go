@@ -219,14 +219,15 @@ cursorLoop:
 
 			maxUnixSecs = t
 
-			op := event.Lookup("op").StringValue()
+			//op := event.Lookup("op").StringValue()
+			op := "null"
 
 			if fullOp, isShortened := fullEventName[op]; isShortened {
 				op = fullOp
 			}
 
 			eventCountsByType[op]++
-			eventSizesByType[op] += int(event.Lookup("size").AsInt64())
+			eventSizesByType[op] += 1
 		}
 
 		rt, hasToken := cursor.GetCursorExtra()["postBatchResumeToken"]
@@ -325,14 +326,15 @@ func _runChangeStreamLoop(
 	initMap(&curEventStats.sizes)
 
 	for cs.Next(sctx) {
-		op := cs.Current.Lookup("op").StringValue()
+		//op := cs.Current.Lookup("op").StringValue()
+		op := "null"
 
 		if fullOp, isShortened := fullEventName[op]; isShortened {
 			op = fullOp
 		}
 
 		curEventStats.counts[op]++
-		curEventStats.sizes[op] += int(cs.Current.Lookup("size").AsInt64())
+		curEventStats.sizes[op] += 1
 
 		if cs.RemainingBatchLength() == 0 {
 			eventsHistory.Add(curEventStats)
