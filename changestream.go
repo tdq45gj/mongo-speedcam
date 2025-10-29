@@ -198,7 +198,7 @@ func _runChangeStream(ctx context.Context, connstr string, interval time.Duratio
 		fullEventName[eventName[:1]] = eventName
 	}
 
-	var minUnixSecs, maxUnixSecs uint32
+	var minUnixSecs, _ uint32
 
 cursorLoop:
 	for {
@@ -217,7 +217,7 @@ cursorLoop:
 				minUnixSecs = t
 			}
 
-			maxUnixSecs = t
+			//maxUnixSecs = t
 
 			//op := event.Lookup("op").StringValue()
 			op := "null"
@@ -249,9 +249,9 @@ cursorLoop:
 		}
 	}
 
-	delta := time.Duration(1+maxUnixSecs-minUnixSecs) * time.Second
+	//delta := time.Duration(1+maxUnixSecs-minUnixSecs) * time.Second
 
-	displayTable(eventCountsByType, eventSizesByType, delta)
+	displayTable(eventCountsByType, eventSizesByType, time.Since(startTime))
 
 	return nil
 }
