@@ -6,7 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/FGasper/mongo-speedcam/agg"
 	"github.com/FGasper/mongo-speedcam/cursor"
 	"github.com/FGasper/mongo-speedcam/history"
 	"github.com/FGasper/mongo-speedcam/resumetoken"
@@ -37,44 +36,6 @@ func _runChangeStream(ctx context.Context, connstr string, interval time.Duratio
 	fmt.Printf("Gathering change events from the past %s …\n", interval)
 
 	startTime := time.Now()
-
-	_ = bson.D{
-		{"aggregate", 1},
-		{"cursor", bson.D{}},
-		{"pipeline", mongo.Pipeline{
-			{{"$changeStream", bson.D{
-				{"allChangesForCluster", true},
-				{"showSystemEvents", true},
-				{"showExpandedEvents", true},
-				{"startAtOperationTime", startTS},
-			}}},
-			{{"$match", bson.D{
-				{"clusterTime", bson.D{
-					{"$lte", bson.Timestamp{T: uint32(time.Now().Unix())}},
-				}},
-			}}},
-			{{"$addFields", bson.D{
-				{"operationType", "$$REMOVE"},
-				{"op", bson.D{{"$cond", bson.D{
-					{"if", bson.D{{"$in", [2]any{
-						"$operationType",
-						eventsToTruncate,
-					}}}},
-					{"then", bson.D{{"$substr",
-						[3]any{"$operationType", 0, 1},
-					}}},
-					{"else", "$operationType"},
-				}}}},
-				{"size", bson.D{{"$bsonSize", "$$ROOT"}}},
-			}}},
-			{{"$project", bson.D{
-				{"_id", 1},
-				{"op", 1},
-				{"size", 1},
-				{"clusterTime", 1},
-			}}},
-		}},
-	}
 
 	pipeline := mongo.Pipeline{
 		// 1. $changeStream stage
@@ -272,25 +233,100 @@ func _runChangeStreamLoop(
 	}
 
 	sctx := mongo.NewSessionContext(ctx, sess)
-
+	
 	cs, err := client.Watch(
 		sctx,
 		mongo.Pipeline{
-			{{"$project", bson.D{
-				{"_id", 1},
-				{"clusterTime", 1},
-				{"op", agg.Cond{
-					If:   agg.In("$operationType", eventsToTruncate...),
-					Then: agg.SubstrBytes{"$operationType", 0, 1},
-					Else: "$operationType",
+			{
+				{"$project", bson.D{
+					{"lsid", 0},
+					{"txnNumber", 0},
+					{"wallTime", 0},
+					{"updateDescription", 0},
+					{"fullDocument", 0},
+					{"rawUpdateDescription", 0},
 				}},
-				{"size", agg.BSONSize("$$ROOT")},
-			}}},
+			},
+			// 3. $match stage for filtering
+			{
+				{"$match", bson.D{
+					{"$expr", bson.D{
+						{"$and", bson.A{
+							// First $not block
+							bson.D{
+								{"$not", bson.D{
+									{"$or", bson.A{
+										// $in condition for "$ns.db"
+										bson.D{
+											{"$in", bson.A{
+												"$ns.db",
+												bson.A{
+													"mongosync_reserved_for_internal_use",
+													"admin",
+													"local",
+													"config",
+												},
+											}},
+										},
+										// $eq condition using $indexOfCP
+										bson.D{
+											{"$eq", bson.A{
+												0,
+												bson.D{
+													{"$indexOfCP", bson.A{
+														"$ns.db",
+														"mongosync_reserved_for_verification_",
+														0,
+														1,
+													}},
+												},
+											}},
+										},
+									}},
+								}},
+							},
+							// Second $not block (for $ns.coll)
+							bson.D{
+								{"$not", bson.D{
+									{"$eq", bson.A{
+										0,
+										bson.D{
+											{"$indexOfCP", bson.A{
+												"$ns.coll",
+												"system.",
+												0,
+												1,
+											}},
+										},
+									}},
+								}},
+							},
+						}},
+					}},
+				}},
+			},
+			// 4. $addFields stage
+			{
+				{"$addFields", bson.D{
+					{"_msh", bson.D{
+						{"$toHashedIndexKey", bson.D{
+							{"$_internalKeyStringValue", bson.D{
+								{"input", "$documentKey._id"},
+							}},
+						}},
+					}},
+				}},
+			},
+			// 5. $changeStreamSplitLargeEvent stage
+			{
+				{"$changeStreamSplitLargeEvent", bson.D{}},
+			},
 		},
 		options.ChangeStream().
 			SetCustomPipeline(bson.M{
-				"showSystemEvents":   true,
-				"showExpandedEvents": true,
+				"showSystemEvents":         true,
+				"showExpandedEvents":       true,
+				"showRawUpdateDescription": true,
 			}),
 	)
 	if err != nil {
@@ -329,9 +365,9 @@ func _runChangeStreamLoop(
 		//op := cs.Current.Lookup("op").StringValue()
 		op := "null"
 
-		if fullOp, isShortened := fullEventName[op]; isShortened {
-			op = fullOp
-		}
+		//if fullOp, isShortened := fullEventName[op]; isShortened {
+		//	op = fullOp
+		//}
 
 		curEventStats.counts[op]++
 		curEventStats.sizes[op] += 1
