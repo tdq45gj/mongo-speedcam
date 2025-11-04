@@ -233,7 +233,7 @@ func _runChangeStreamLoop(
 	}
 
 	sctx := mongo.NewSessionContext(ctx, sess)
-	
+
 	cs, err := client.Watch(
 		sctx,
 		mongo.Pipeline{
@@ -313,6 +313,16 @@ func _runChangeStreamLoop(
 							{"$_internalKeyStringValue", bson.D{
 								{"input", "$documentKey._id"},
 							}},
+						}},
+					}},
+				}},
+			},
+			{
+				{"$match", bson.D{
+					{"$expr", bson.D{
+						{"$eq", bson.A{
+							bson.D{{"$mod", bson.A{"$_msh", 2}}},
+							0,
 						}},
 					}},
 				}},
