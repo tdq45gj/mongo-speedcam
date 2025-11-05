@@ -305,6 +305,22 @@ func _runChangeStreamLoop(
 					}},
 				}},
 			},
+			{
+				{"$match", bson.D{
+					{"$expr", bson.D{
+						{"$eq", bson.A{
+							bson.D{{"$mod", bson.A{bson.D{
+								{"$toHashedIndexKey", bson.D{
+									{"$_internalKeyStringValue", bson.D{
+										{"input", "$documentKey._id"},
+									}},
+								}},
+							}, 2}}},
+							0,
+						}},
+					}},
+				}},
+			},
 			// 4. $addFields stage
 			{
 				{"$addFields", bson.D{
@@ -313,16 +329,6 @@ func _runChangeStreamLoop(
 							{"$_internalKeyStringValue", bson.D{
 								{"input", "$documentKey._id"},
 							}},
-						}},
-					}},
-				}},
-			},
-			{
-				{"$match", bson.D{
-					{"$expr", bson.D{
-						{"$eq", bson.A{
-							bson.D{{"$mod", bson.A{"$_msh", 2}}},
-							0,
 						}},
 					}},
 				}},
