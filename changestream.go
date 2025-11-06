@@ -263,7 +263,7 @@ func _runChangeStreamLoop(
 													}},
 												}},
 											},
-											2,
+											3,
 										}},
 									},
 									0,
