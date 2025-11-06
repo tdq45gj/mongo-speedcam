@@ -252,6 +252,23 @@ func _runChangeStreamLoop(
 				{"$match", bson.D{
 					{"$expr", bson.D{
 						{"$and", bson.A{
+							bson.D{
+								{"$eq", bson.A{
+									bson.D{
+										{"$mod", bson.A{
+											bson.D{
+												{"$toHashedIndexKey", bson.D{
+													{"$_internalKeyStringValue", bson.D{
+														{"input", "$documentKey._id"},
+													}},
+												}},
+											},
+											2,
+										}},
+									},
+									0,
+								}},
+							},
 							// First $not block
 							bson.D{
 								{"$not", bson.D{
@@ -301,22 +318,6 @@ func _runChangeStreamLoop(
 									}},
 								}},
 							},
-						}},
-					}},
-				}},
-			},
-			{
-				{"$match", bson.D{
-					{"$expr", bson.D{
-						{"$eq", bson.A{
-							bson.D{{"$mod", bson.A{bson.D{
-								{"$toHashedIndexKey", bson.D{
-									{"$_internalKeyStringValue", bson.D{
-										{"input", "$documentKey._id"},
-									}},
-								}},
-							}, 2}}},
-							0,
 						}},
 					}},
 				}},
